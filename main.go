@@ -30,6 +30,7 @@ type Post struct {
 	Tags          []string // Will be populated separately
 	Categories    []string // Will be populated separately
 	IsFeatured    bool     // Default is false
+	FeaturedImage string   // Will be populated from WordPress API
 }
 
 func main() {
@@ -125,6 +126,31 @@ func main() {
 			log.Printf("Error fetching categories for post %d: %v", posts[i].ID, err)
 		}
 		posts[i].Categories = categories
+
+		// Get featured image for the post
+		var featuredImageID int
+		featuredImageQuery := `
+			SELECT meta_value
+			FROM wp_postmeta
+			WHERE post_id = ?
+			AND meta_key = '_thumbnail_id';
+		`
+		if err := db.Get(&featuredImageID, featuredImageQuery, posts[i].ID); err != nil {
+			log.Printf("Error fetching featured image ID for post %d: %v", posts[i].ID, err)
+		} else if featuredImageID > 0 {
+			// Get the image URL from wp_posts
+			var imageURL string
+			imageURLQuery := `
+				SELECT guid
+				FROM wp_posts
+				WHERE ID = ?;
+			`
+			if err := db.Get(&imageURL, imageURLQuery, featuredImageID); err != nil {
+				log.Printf("Error fetching featured image URL for post %d: %v", posts[i].ID, err)
+			} else {
+				posts[i].FeaturedImage = imageURL
+			}
+		}
 
 		// Merge categories into tags for the frontmatter schema
 		// This is because the schema only has a tags field, not categories
@@ -225,14 +251,20 @@ func main() {
 		}
 
 		fmt.Printf(
-			"Title: %s\nDate: %s\nTags: %s\nURL: %s\nFile: %s\nContent snippet: %.60s...\n\n",
+			"Title: %s\nDate: %s\nTags: %s\nURL: %s\nFile: %s\nFeatured Image: %s\nContent snippet: %.60s...\n\n",
 			post.Title,
 			post.PublishedDate,
 			strings.Join(post.Tags, ", "),
 			fullURL,
 			filePath,
+			post.FeaturedImage,
 			post.Content[:contentLen],
 		)
+
+		// Add featured image to imageURLs if it exists
+		if post.FeaturedImage != "" {
+			imageURLs = append(imageURLs, post.FeaturedImage)
+		}
 
 		// Parse the publish date from the database format
 		publishDate, err := parseWordPressDate(post.PublishedDate)
@@ -262,11 +294,16 @@ func main() {
 		}
 
 		// Create markdown content with frontmatter according to the schema
-		markdownWithFrontmatter := fmt.Sprintf("---\ntitle: %s\nexcerpt: \"\"\npublishDate: %s\n%sisFeatured: false\ntags: %s\nseo: {}\n---\n\n%s",
+		featuredImageFrontmatter := ""
+		if post.FeaturedImage != "" {
+			featuredImageFrontmatter = fmt.Sprintf("featuredImage: %s\n", strconv.Quote(post.FeaturedImage))
+		}
+		markdownWithFrontmatter := fmt.Sprintf("---\ntitle: %s\nexcerpt: \"\"\npublishDate: %s\n%sisFeatured: false\ntags: %s\n%sseo: {}\n---\n\n%s",
 			strconv.Quote(post.Title),
 			strconv.Quote(publishDate.Format("2006-01-02")),
 			updatedDateFrontmatter,
 			tagsJSON,
+			featuredImageFrontmatter,
 			post.Content,
 		)
 
