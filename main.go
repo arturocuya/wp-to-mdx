@@ -13,24 +13,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func processContent(content []Post, outputDir string, wpAPIBase string, isPage bool) []string {
+func processContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool) []string {
 	var allImageURLs []string
 
 	for _, item := range content {
-		// Convert HTML to Markdown
-		markdown, imageURLs, err := ConvertHTMLToMarkdown(item.Content)
-		if err != nil {
-			log.Printf("Warning: Failed to convert %d to markdown: %v", item.ID, err)
-			continue
-		}
-		item.Content = markdown
-		allImageURLs = append(allImageURLs, imageURLs...)
-
-		// Add featured image to imageURLs if it exists
-		if item.FeaturedImage != "" {
-			allImageURLs = append(allImageURLs, item.FeaturedImage)
-		}
-
 		// Get the full URL from WordPress API just before creating the file
 		var fullURL string
 		var urlErr error
@@ -56,14 +42,39 @@ func processContent(content []Post, outputDir string, wpAPIBase string, isPage b
 		}
 		// Remove any trailing slash from the path
 		path = strings.TrimSuffix(path, "/")
-		filePath := fmt.Sprintf("%s/%s.md", outputDir, path)
+
+		// Create HTML file path
+		htmlFilePath := fmt.Sprintf("%s/%s.html", htmlOutputDir, path)
 
 		// Create the directory path if it doesn't exist
-		dirPath := filepath.Dir(filePath)
+		dirPath := filepath.Dir(htmlFilePath)
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
 			log.Printf("Failed to create directory %s: %v", dirPath, err)
 			continue
 		}
+
+		// Write HTML file
+		if err := os.WriteFile(htmlFilePath, []byte(item.Content), 0644); err != nil {
+			log.Printf("WriteFile error for HTML %s: %v", htmlFilePath, err)
+			continue
+		}
+
+		// Convert HTML to Markdown
+		markdown, imageURLs, err := ConvertHTMLToMarkdown(item.Content)
+		if err != nil {
+			log.Printf("Warning: Failed to convert %d to markdown: %v", item.ID, err)
+			continue
+		}
+		item.Content = markdown
+		allImageURLs = append(allImageURLs, imageURLs...)
+
+		// Add featured image to imageURLs if it exists
+		if item.FeaturedImage != "" {
+			allImageURLs = append(allImageURLs, item.FeaturedImage)
+		}
+
+		// Create markdown file path
+		filePath := fmt.Sprintf("%s/%s.md", outputDir, path)
 
 		// Parse dates
 		publishDate, dateErr := ParseWordPressDate(item.PublishedDate)
@@ -84,7 +95,7 @@ func processContent(content []Post, outputDir string, wpAPIBase string, isPage b
 		// Create markdown content with frontmatter
 		markdownWithFrontmatter := frontmatter + item.Content
 
-		// Write the file
+		// Write the markdown file
 		if err := os.WriteFile(filePath, []byte(markdownWithFrontmatter), 0644); err != nil {
 			log.Printf("WriteFile error for %s: %v", filePath, err)
 			continue
@@ -93,11 +104,12 @@ func processContent(content []Post, outputDir string, wpAPIBase string, isPage b
 		// Print item information
 		contentLen := min(len(item.Content), 20)
 		fmt.Printf(
-			"Title: %s\nDate: %s\nTags: %s\nURL: %s\nFile: %s\nFeatured Image: %s\nContent snippet: %.60s...\n\n",
+			"Title: %s\nDate: %s\nTags: %s\nURL: %s\nHTML File: %s\nMarkdown File: %s\nFeatured Image: %s\nContent snippet: %.60s...\n\n",
 			item.Title,
 			item.PublishedDate,
 			strings.Join(item.Tags, ", "),
 			fullURL,
+			htmlFilePath,
 			filePath,
 			item.FeaturedImage,
 			item.Content[:contentLen],
@@ -121,6 +133,7 @@ func main() {
 	dbName := os.Getenv("DB_NAME")
 	postsOutputDir := os.Getenv("POSTS_OUTPUT_DIR")
 	pagesOutputDir := os.Getenv("PAGES_OUTPUT_DIR")
+	htmlOutputDir := os.Getenv("OUTPUT_HTML_DIR")
 	wpAPIBase := os.Getenv("WP_API_BASE")
 	if postsOutputDir == "" {
 		postsOutputDir = "./output-posts" // default value if not set
@@ -128,12 +141,15 @@ func main() {
 	if pagesOutputDir == "" {
 		pagesOutputDir = "./output-pages" // default value if not set
 	}
+	if htmlOutputDir == "" {
+		htmlOutputDir = "./output-html" // default value if not set
+	}
 	if wpAPIBase == "" {
 		wpAPIBase = "http://localhost:8082/wp-json/wp/v2" // default value if not set
 	}
 
 	// Create output directories if they don't exist
-	for _, dir := range []string{postsOutputDir, pagesOutputDir} {
+	for _, dir := range []string{postsOutputDir, pagesOutputDir, htmlOutputDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			log.Fatalf("Failed to create output directory %s: %v", dir, err)
 		}
@@ -227,8 +243,8 @@ func main() {
 	}
 
 	// Process posts and pages
-	postImageURLs := processContent(posts, postsOutputDir, wpAPIBase, false)
-	pageImageURLs := processContent(pages, pagesOutputDir, wpAPIBase, true)
+	postImageURLs := processContent(posts, postsOutputDir, htmlOutputDir, wpAPIBase, false)
+	pageImageURLs := processContent(pages, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
 
 	// Combine all image URLs
 	allImageURLs := append(postImageURLs, pageImageURLs...)
