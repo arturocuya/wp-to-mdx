@@ -1,10 +1,13 @@
-
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,14 +21,15 @@ import (
 
 // Post represents a WordPress post with title, publish date, update date, HTML content, and related taxonomies.
 type Post struct {
-	ID            int       `db:"ID"`
-	Title         string    `db:"title"`
-	PublishedDate string    `db:"published_date"`
-	UpdatedDate   string    `db:"updated_date"`
-	Content       string    `db:"content"`
-	Tags          []string  // Will be populated separately
-	Categories    []string  // Will be populated separately
-	IsFeatured    bool      // Default is false
+	ID            int      `db:"ID"`
+	Title         string   `db:"title"`
+	PublishedDate string   `db:"published_date"`
+	UpdatedDate   string   `db:"updated_date"`
+	Content       string   `db:"content"`
+	URL           string   // Will be populated from WordPress API
+	Tags          []string // Will be populated separately
+	Categories    []string // Will be populated separately
+	IsFeatured    bool     // Default is false
 }
 
 func main() {
@@ -41,8 +45,12 @@ func main() {
 	password := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
 	outputDir := os.Getenv("OUTPUT_DIR")
+	wpAPIBase := os.Getenv("WP_API_BASE")
 	if outputDir == "" {
 		outputDir = "./output-md" // default value if not set
+	}
+	if wpAPIBase == "" {
+		wpAPIBase = "http://localhost:8082/wp-json/wp/v2" // default value if not set
 	}
 
 	// Create output directory if it doesn't exist
@@ -75,7 +83,7 @@ func main() {
         WHERE
           post_type   = 'post'
           AND post_status = 'publish'
-        ORDER BY post_date DESC;
+        ORDER BY post_date DESC limit 10;
     `
 
 	// Slice to hold unmarshaled posts
@@ -121,6 +129,16 @@ func main() {
 		// Merge categories into tags for the frontmatter schema
 		// This is because the schema only has a tags field, not categories
 		posts[i].Tags = append(posts[i].Tags, categories...)
+
+		// Get the full URL from WordPress API
+		url, err := getPostURL(wpAPIBase, posts[i].ID)
+		if err != nil {
+			log.Printf("Warning: Could not get URL for post %d: %v", posts[i].ID, err)
+		} else {
+			posts[i].URL = url
+		}
+
+		fmt.Println("url", url)
 	}
 
 	// Create a new converter with default options
@@ -178,16 +196,45 @@ func main() {
 
 		contentLen := min(len(post.Content), 20)
 
+		// Get the full URL from WordPress API just before creating the file
+		fullURL, err := getPostURL(wpAPIBase, post.ID)
+		if err != nil {
+			log.Printf("Warning: Could not get URL for post %d: %v", post.ID, err)
+			continue
+		}
+
+		// Extract the path from the URL
+		u, err := url.Parse(fullURL)
+		if err != nil {
+			log.Printf("Warning: Could not parse URL %s: %v", fullURL, err)
+			continue
+		}
+		path := strings.TrimPrefix(u.Path, "/")
+		if path == "" {
+			path = "index"
+		}
+		// Remove any trailing slash from the path
+		path = strings.TrimSuffix(path, "/")
+		filePath := fmt.Sprintf("%s/%s.md", outputDir, path)
+
+		// Create the directory path if it doesn't exist
+		dirPath := filepath.Dir(filePath)
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			log.Printf("Failed to create directory %s: %v", dirPath, err)
+			continue
+		}
+
 		fmt.Printf(
-			"Title: %s\nDate: %s\nTags: %s\nContent snippet: %.60s...\n\n",
+			"Title: %s\nDate: %s\nTags: %s\nURL: %s\nFile: %s\nContent snippet: %.60s...\n\n",
 			post.Title,
 			post.PublishedDate,
 			strings.Join(post.Tags, ", "),
+			fullURL,
+			filePath,
 			post.Content[:contentLen],
 		)
 
 		// Parse the publish date from the database format
-		// Try different date formats since WordPress can store dates in different formats
 		publishDate, err := parseWordPressDate(post.PublishedDate)
 		if err != nil {
 			log.Printf("Warning: Could not parse publish date '%s': %v", post.PublishedDate, err)
@@ -223,11 +270,8 @@ func main() {
 			post.Content,
 		)
 
-		// Sanitize filename to avoid issues with filesystem
-		safeTitle := sanitizeFilename(post.Title)
-
-		if err := os.WriteFile(fmt.Sprintf("%s/%s.md", outputDir, safeTitle), []byte(markdownWithFrontmatter), 0644); err != nil {
-			log.Printf("WriteFile error for %s: %v", safeTitle, err)
+		if err := os.WriteFile(filePath, []byte(markdownWithFrontmatter), 0644); err != nil {
+			log.Printf("WriteFile error for %s: %v", filePath, err)
 			continue
 		}
 	}
@@ -242,11 +286,11 @@ func main() {
 func parseWordPressDate(dateStr string) (time.Time, error) {
 	// List of possible date formats in WordPress
 	dateFormats := []string{
-		"2006-01-02 15:04:05",         // MySQL datetime format
-		time.RFC3339,                   // "2006-01-02T15:04:05Z07:00"
-		"2006-01-02T15:04:05-07:00",    // WordPress often uses this format
+		"2006-01-02 15:04:05",           // MySQL datetime format
+		time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04:05-07:00",     // WordPress often uses this format
 		"2006-01-02T15:04:05.000-07:00", // With milliseconds
-		"2006-01-02T15:04:05.000Z",     // UTC with milliseconds
+		"2006-01-02T15:04:05.000Z",      // UTC with milliseconds
 	}
 
 	// Try each format until one works
@@ -275,4 +319,29 @@ func sanitizeFilename(filename string) string {
 		"|", "_",
 	)
 	return replacer.Replace(filename)
+}
+
+// getPostURL fetches the full URL of a post using the WordPress REST API
+func getPostURL(apiBase string, postID int) (string, error) {
+	client := &http.Client{}
+	url := fmt.Sprintf("%s/posts/%d", apiBase, postID)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch post URL: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Link string `json:"link"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return result.Link, nil
 }
