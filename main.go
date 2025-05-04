@@ -44,18 +44,18 @@ func main() {
 	user := os.Getenv("DB_USER")
 	password := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
-	outputDir := os.Getenv("OUTPUT_DIR")
+	postsOutputDir := os.Getenv("POSTS_OUTPUT_DIR")
 	wpAPIBase := os.Getenv("WP_API_BASE")
-	if outputDir == "" {
-		outputDir = "./output-md" // default value if not set
+	if postsOutputDir == "" {
+		postsOutputDir = "./output-posts" // default value if not set
 	}
 	if wpAPIBase == "" {
 		wpAPIBase = "http://localhost:8082/wp-json/wp/v2" // default value if not set
 	}
 
-	// Create output directory if it doesn't exist
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Fatalf("Failed to create output directory: %v", err)
+	// Create posts output directory if it doesn't exist
+	if err := os.MkdirAll(postsOutputDir, 0755); err != nil {
+		log.Fatalf("Failed to create posts output directory: %v", err)
 	}
 
 	// Build DSN (Data Source Name)
@@ -215,7 +215,7 @@ func main() {
 		}
 		// Remove any trailing slash from the path
 		path = strings.TrimSuffix(path, "/")
-		filePath := fmt.Sprintf("%s/%s.md", outputDir, path)
+		filePath := fmt.Sprintf("%s/%s.md", postsOutputDir, path)
 
 		// Create the directory path if it doesn't exist
 		dirPath := filepath.Dir(filePath)
