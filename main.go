@@ -12,10 +12,11 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 )
 
-func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool) []string {
+func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool, db *sqlx.DB) []string {
 	var allImageURLs []string
 
 	for _, item := range content {
@@ -68,24 +69,7 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 			continue
 		}
 
-		splittedMd := strings.Split(markdown, "\n")
-		for i, line := range splittedMd {
-			parts := strings.SplitN(line, " ", 2)
-			link := parts[0]
-			rest := ""
-			if len(parts) > 1 {
-				rest = " " + parts[1]
-			}
-			if strings.HasPrefix(link, "https://youtube.com") || strings.HasPrefix(link, "https://youtu.be") {
-				splittedMd[i] = fmt.Sprintf("<YouTube id=\"%s\" />%s", link, rest)
-			}
-		}
-		markdown = strings.Join(splittedMd, "\n")
-
-		// post-processing for YouTube links...
-		if strings.Contains(markdown, "<YouTube id=") {
-			markdown = fmt.Sprintf("import { YouTube } from 'astro-embed';\n\n%s", markdown)
-		}
+		markdown = PostProcessMarkdownLines(markdown, db)
 
 		item.Content = markdown
 		allImageURLs = append(allImageURLs, imageURLs...)
@@ -247,7 +231,7 @@ func main() {
 			}
 
 			// Process content and collect images for this post
-			urls := ProcessContent([]Post{*p}, postsOutputDir, htmlOutputDir, wpAPIBase, false)
+			urls := ProcessContent([]Post{*p}, postsOutputDir, htmlOutputDir, wpAPIBase, false, db)
 			imageCh <- urls
 		}(p)
 	}
@@ -287,7 +271,7 @@ func main() {
 			}
 
 			// Process content and collect images for this page
-			urls := ProcessContent([]Post{*p}, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
+			urls := ProcessContent([]Post{*p}, pagesOutputDir, htmlOutputDir, wpAPIBase, true, db)
 			imageCh <- urls
 		}(p)
 	}

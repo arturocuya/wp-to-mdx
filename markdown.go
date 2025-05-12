@@ -48,7 +48,7 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 					alt, _ := img.Attr("alt")
 
 					imageURLs = append(imageURLs, src)
-					markdown := fmt.Sprintf("\n\n<Image src=\"%s\" alt=\"%s\" />\n\n", src, alt)
+					markdown := fmt.Sprintf("\n\n<img src=\"%s\" alt=\"%s\" />\n\n", src, alt)
 					return &markdown
 				}
 				return nil

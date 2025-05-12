@@ -140,3 +140,28 @@ func FetchPages(db *sqlx.DB) ([]Post, error) {
 
 	return pages, nil
 }
+
+
+// getImageURLsFromDB simply SELECTs the GUID column
+func GetImageURLsFromDB(db *sqlx.DB, ids []int) ([]string, error) {
+	stmt, err := db.Prepare(`
+        SELECT guid
+          FROM wp_posts
+         WHERE ID = ?
+           AND post_type = 'attachment'
+    `)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	var urls []string
+	for _, id := range ids {
+		var url string
+		if err := stmt.QueryRow(id).Scan(&url); err != nil {
+			return nil, fmt.Errorf("id %d: %w", id, err)
+		}
+		urls = append(urls, url)
+	}
+	return urls, nil
+}
