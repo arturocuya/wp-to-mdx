@@ -37,24 +37,51 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 		},
 	)
 
+	mustImportYoutubeComponent := false
+
 	// Add rule for iframes
 	converter.AddRules(
 		html2md.Rule{
 			Filter: []string{"iframe"},
 			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
-				src, exists := selec.Attr("src")
-				if !exists {
+				src, ok := selec.Attr("src")
+				if !ok {
 					return nil
 				}
-				markdown := fmt.Sprintf("\n\n[View embedded content](%s)\n\n", src)
-				return &markdown
+				if strings.Contains(src, "youtube.com") || strings.Contains(src, "youtu.be") {
+					mustImportYoutubeComponent = true
+					src = strings.ReplaceAll(src, "https://www.youtube.com/embed/", "https://youtu.be/")
+					md := fmt.Sprintf("\n\n<YouTube id=\"%s\" />\n\n", src)
+					return &md
+				}
+				// non-YouTube fallback
+				md := fmt.Sprintf("\n\n[View embedded content](%s)\n\n", src)
+				return &md
 			},
 		},
 	)
-
 	markdown, err := converter.ConvertString(html)
 	if err != nil {
 		return "", nil, fmt.Errorf("conversion error: %v", err)
+	}
+
+	splittedMd := strings.Split(markdown, "\n")
+	for i, line := range splittedMd {
+		parts := strings.SplitN(line, " ", 2)
+		link := parts[0]
+		rest := ""
+		if len(parts) > 1 {
+			rest = " " + parts[1]
+		}
+		if strings.HasPrefix(link, "https://youtube.com") || strings.HasPrefix(link, "https://youtu.be") {
+			mustImportYoutubeComponent = true
+			splittedMd[i] = fmt.Sprintf("<YouTube id=\"%s\" />%s", link, rest)
+		}
+	}
+	markdown = strings.Join(splittedMd, "\n")
+
+	if mustImportYoutubeComponent {
+		markdown = fmt.Sprintf("import { YouTube } from 'astro-embed';\n\n%s", markdown)
 	}
 
 	return markdown, imageURLs, nil

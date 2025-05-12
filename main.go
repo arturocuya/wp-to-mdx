@@ -74,7 +74,7 @@ func processContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		}
 
 		// Create markdown file path
-		filePath := fmt.Sprintf("%s/%s.md", outputDir, path)
+		filePath := fmt.Sprintf("%s/%s.mdx", outputDir, path)
 
 		// Parse dates
 		publishDate, dateErr := ParseWordPressDate(item.PublishedDate)
