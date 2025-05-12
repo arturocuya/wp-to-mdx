@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,24 +16,42 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 	converter := html2md.NewConverter("", true, nil)
 	var imageURLs []string
 
+	// Load base URL from environment
+	baseURL := os.Getenv("WP_BASE_URL")
+
+	// Rule to strip baseURL from all <a> hrefs
+	converter.AddRules(
+		html2md.Rule{
+			Filter: []string{"a"},
+			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
+				href, ok := selec.Attr("href")
+				if !ok {
+					return nil
+				}
+				// Remove base URL prefix
+				newHref := strings.ReplaceAll(href, baseURL, "/")
+				text := selec.Text()
+				md := fmt.Sprintf("[%s](%s)", text, newHref)
+				return &md
+			},
+		},
+	)
+
 	// Add custom rule for images inside paragraph tags
 	converter.AddRules(
 		html2md.Rule{
 			Filter: []string{"p", "span", "h1", "h2", "h3", "h4", "h5", "h6"},
 			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
-				// Check if the paragraph contains only an image
 				if selec.Children().Length() == 1 && selec.Children().Is("img") {
 					img := selec.Children().First()
 					src, _ := img.Attr("src")
 					alt, _ := img.Attr("alt")
 
 					imageURLs = append(imageURLs, src)
-
-					// Construct markdown image with attributes
 					markdown := fmt.Sprintf("\n\n<Image src=\"%s\" alt=\"%s\" />\n\n", src, alt)
 					return &markdown
 				}
-				return nil // Let the default rule handle other cases
+				return nil
 			},
 		},
 	)
@@ -54,31 +73,18 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 					md := fmt.Sprintf("\n\n<YouTube id=\"%s\" />\n\n", src)
 					return &md
 				}
-				// non-YouTube fallback
 				md := fmt.Sprintf("\n\n[View embedded content](%s)\n\n", src)
 				return &md
 			},
 		},
 	)
+
 	markdown, err := converter.ConvertString(html)
 	if err != nil {
 		return "", nil, fmt.Errorf("conversion error: %v", err)
 	}
 
-	splittedMd := strings.Split(markdown, "\n")
-	for i, line := range splittedMd {
-		parts := strings.SplitN(line, " ", 2)
-		link := parts[0]
-		rest := ""
-		if len(parts) > 1 {
-			rest = " " + parts[1]
-		}
-		if strings.HasPrefix(link, "https://youtube.com") || strings.HasPrefix(link, "https://youtu.be") {
-			mustImportYoutubeComponent = true
-			splittedMd[i] = fmt.Sprintf("<YouTube id=\"%s\" />%s", link, rest)
-		}
-	}
-	markdown = strings.Join(splittedMd, "\n")
+	// post-processing for YouTube links...
 
 	if mustImportYoutubeComponent {
 		markdown = fmt.Sprintf("import { YouTube } from 'astro-embed';\n\n%s", markdown)
