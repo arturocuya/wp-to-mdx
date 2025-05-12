@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -143,17 +145,19 @@ func main() {
 	pagesOutputDir := os.Getenv("PAGES_OUTPUT_DIR")
 	htmlOutputDir := os.Getenv("OUTPUT_HTML_DIR")
 	wpAPIBase := os.Getenv("WP_API_BASE")
+
+	// Default values if not set
 	if postsOutputDir == "" {
-		postsOutputDir = "./output-posts" // default value if not set
+		postsOutputDir = "./output-posts"
 	}
 	if pagesOutputDir == "" {
-		pagesOutputDir = "./output-pages" // default value if not set
+		pagesOutputDir = "./output-pages"
 	}
 	if htmlOutputDir == "" {
-		htmlOutputDir = "./output-html" // default value if not set
+		htmlOutputDir = "./output-html"
 	}
 	if wpAPIBase == "" {
-		wpAPIBase = "http://localhost:8082/wp-json/wp/v2" // default value if not set
+		wpAPIBase = "http://localhost:8082/wp-json/wp/v2"
 	}
 
 	// Create output directories if they don't exist
@@ -170,94 +174,114 @@ func main() {
 	}
 	defer db.Close()
 
-	// Process posts
+	// Fetch posts and pages
 	posts, err := FetchPosts(db)
 	if err != nil {
 		log.Fatalf("Failed to fetch posts: %v", err)
 	}
-
-	// Process each post
-	for i := range posts {
-		// Get tags and categories
-		tags, err := FetchPostTags(db, posts[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		posts[i].Tags = tags
-
-		categories, err := FetchPostCategories(db, posts[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		posts[i].Categories = categories
-
-		// Get featured image
-		featuredImage, err := FetchFeaturedImage(db, posts[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		posts[i].FeaturedImage = featuredImage
-
-		// Merge categories into tags
-		posts[i].Tags = append(posts[i].Tags, categories...)
-
-		// Get the full URL from WordPress API
-		url, err := GetPostURL(wpAPIBase, posts[i].ID)
-		if err != nil {
-			log.Printf("Warning: Could not get URL for post %d: %v", posts[i].ID, err)
-		} else {
-			posts[i].URL = url
-		}
-	}
-
-	// Process pages
 	pages, err := FetchPages(db)
 	if err != nil {
 		log.Fatalf("Failed to fetch pages: %v", err)
 	}
 
-	// Process each page
-	for i := range pages {
-		// Get tags and categories
-		tags, err := FetchPostTags(db, pages[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		pages[i].Tags = tags
+	// Set up concurrency limiting
+	nCPU := runtime.NumCPU()
+	sem := make(chan struct{}, nCPU)
+	var wg sync.WaitGroup
 
-		categories, err := FetchPostCategories(db, pages[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		pages[i].Categories = categories
+	// Channel to collect image-URL slices from each goroutine
+	imageCh := make(chan []string, len(posts)+len(pages))
 
-		// Get featured image
-		featuredImage, err := FetchFeaturedImage(db, pages[i].ID)
-		if err != nil {
-			log.Printf("Warning: %v", err)
-		}
-		pages[i].FeaturedImage = featuredImage
+	// Process each post end-to-end in parallel
+	for i := range posts {
+		p := &posts[i]
+		wg.Add(1)
+		sem <- struct{}{}
 
-		// Merge categories into tags
-		pages[i].Tags = append(pages[i].Tags, categories...)
+		go func(p *Post) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		// Get the full URL from WordPress API
-		url, err := GetPageURL(wpAPIBase, pages[i].ID)
-		if err != nil {
-			log.Printf("Warning: Could not get URL for page %d: %v", pages[i].ID, err)
-		} else {
-			pages[i].URL = url
-		}
+			// Enrich metadata
+			if tags, err := FetchPostTags(db, p.ID); err != nil {
+				log.Printf("Warning fetching tags for post %d: %v", p.ID, err)
+			} else {
+				p.Tags = tags
+			}
+			if cats, err := FetchPostCategories(db, p.ID); err != nil {
+				log.Printf("Warning fetching categories for post %d: %v", p.ID, err)
+			} else {
+				p.Categories = cats
+			}
+			if img, err := FetchFeaturedImage(db, p.ID); err != nil {
+				log.Printf("Warning fetching featured image for post %d: %v", p.ID, err)
+			} else {
+				p.FeaturedImage = img
+			}
+			// Merge categories into tags
+			p.Tags = append(p.Tags, p.Categories...)
+			if url, err := GetPostURL(wpAPIBase, p.ID); err != nil {
+				log.Printf("Warning getting URL for post %d: %v", p.ID, err)
+			} else {
+				p.URL = url
+			}
+
+			// Process content and collect images for this post
+			urls := processContent([]Post{*p}, postsOutputDir, htmlOutputDir, wpAPIBase, false)
+			imageCh <- urls
+		}(p)
 	}
 
-	// Process posts and pages
-	postImageURLs := processContent(posts, postsOutputDir, htmlOutputDir, wpAPIBase, false)
-	pageImageURLs := processContent(pages, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
+	// Process each page end-to-end in parallel
+	for i := range pages {
+		p := &pages[i]
+		wg.Add(1)
+		sem <- struct{}{}
 
-	// Combine all image URLs
-	allImageURLs := append(postImageURLs, pageImageURLs...)
+		go func(p *Post) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-	// Print all image URLs that need to be downloaded
+			// Enrich metadata
+			if tags, err := FetchPostTags(db, p.ID); err != nil {
+				log.Printf("Warning fetching tags for page %d: %v", p.ID, err)
+			} else {
+				p.Tags = tags
+			}
+			if cats, err := FetchPostCategories(db, p.ID); err != nil {
+				log.Printf("Warning fetching categories for page %d: %v", p.ID, err)
+			} else {
+				p.Categories = cats
+			}
+			if img, err := FetchFeaturedImage(db, p.ID); err != nil {
+				log.Printf("Warning fetching featured image for page %d: %v", p.ID, err)
+			} else {
+				p.FeaturedImage = img
+			}
+			// Merge categories into tags
+			p.Tags = append(p.Tags, p.Categories...)
+			if url, err := GetPageURL(wpAPIBase, p.ID); err != nil {
+				log.Printf("Warning getting URL for page %d: %v", p.ID, err)
+			} else {
+				p.URL = url
+			}
+
+			// Process content and collect images for this page
+			urls := processContent([]Post{*p}, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
+			imageCh <- urls
+		}(p)
+	}
+
+	// Wait for all to finish, then close channel
+	wg.Wait()
+	close(imageCh)
+
+	// Combine and print all image URLs
+	var allImageURLs []string
+	for urls := range imageCh {
+		allImageURLs = append(allImageURLs, urls...)
+	}
+
 	fmt.Println("Images to download:")
 	for i, src := range allImageURLs {
 		fmt.Println(i, src)
