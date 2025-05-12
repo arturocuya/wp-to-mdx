@@ -15,7 +15,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func processContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool) []string {
+func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool) []string {
 	var allImageURLs []string
 
 	for _, item := range content {
@@ -67,6 +67,26 @@ func processContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 			log.Printf("Warning: Failed to convert %d to markdown: %v", item.ID, err)
 			continue
 		}
+
+		splittedMd := strings.Split(markdown, "\n")
+		for i, line := range splittedMd {
+			parts := strings.SplitN(line, " ", 2)
+			link := parts[0]
+			rest := ""
+			if len(parts) > 1 {
+				rest = " " + parts[1]
+			}
+			if strings.HasPrefix(link, "https://youtube.com") || strings.HasPrefix(link, "https://youtu.be") {
+				splittedMd[i] = fmt.Sprintf("<YouTube id=\"%s\" />%s", link, rest)
+			}
+		}
+		markdown = strings.Join(splittedMd, "\n")
+
+		// post-processing for YouTube links...
+		if strings.Contains(markdown, "<YouTube id=") {
+			markdown = fmt.Sprintf("import { YouTube } from 'astro-embed';\n\n%s", markdown)
+		}
+
 		item.Content = markdown
 		allImageURLs = append(allImageURLs, imageURLs...)
 
@@ -227,7 +247,7 @@ func main() {
 			}
 
 			// Process content and collect images for this post
-			urls := processContent([]Post{*p}, postsOutputDir, htmlOutputDir, wpAPIBase, false)
+			urls := ProcessContent([]Post{*p}, postsOutputDir, htmlOutputDir, wpAPIBase, false)
 			imageCh <- urls
 		}(p)
 	}
@@ -267,7 +287,7 @@ func main() {
 			}
 
 			// Process content and collect images for this page
-			urls := processContent([]Post{*p}, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
+			urls := ProcessContent([]Post{*p}, pagesOutputDir, htmlOutputDir, wpAPIBase, true)
 			imageCh <- urls
 		}(p)
 	}

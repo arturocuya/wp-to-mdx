@@ -56,8 +56,6 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 		},
 	)
 
-	mustImportYoutubeComponent := false
-
 	// Add rule for iframes
 	converter.AddRules(
 		html2md.Rule{
@@ -68,7 +66,6 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 					return nil
 				}
 				if strings.Contains(src, "youtube.com") || strings.Contains(src, "youtu.be") {
-					mustImportYoutubeComponent = true
 					src = strings.ReplaceAll(src, "https://www.youtube.com/embed/", "https://youtu.be/")
 					md := fmt.Sprintf("\n\n<YouTube id=\"%s\" />\n\n", src)
 					return &md
@@ -82,12 +79,6 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 	markdown, err := converter.ConvertString(html)
 	if err != nil {
 		return "", nil, fmt.Errorf("conversion error: %v", err)
-	}
-
-	// post-processing for YouTube links...
-
-	if mustImportYoutubeComponent {
-		markdown = fmt.Sprintf("import { YouTube } from 'astro-embed';\n\n%s", markdown)
 	}
 
 	return markdown, imageURLs, nil
