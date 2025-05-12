@@ -43,7 +43,7 @@ func FetchPosts(db *sqlx.DB) ([]Post, error) {
         WHERE
           post_type   = 'post'
           AND post_status = 'publish'
-        ORDER BY post_date DESC limit 10;
+        ORDER BY post_date DESC;
     `
 
 	var posts []Post
