@@ -95,10 +95,18 @@ func processContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		// Create markdown content with frontmatter
 		markdownWithFrontmatter := frontmatter + item.Content
 
+		dir := filepath.Dir(filePath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Printf("MkdirAll error for %s: %v", dir, err)
+			continue
+		}
+
 		// Write the markdown file
 		if err := os.WriteFile(filePath, []byte(markdownWithFrontmatter), 0644); err != nil {
 			log.Printf("WriteFile error for %s: %v", filePath, err)
 			continue
+		} else {
+			log.Printf("Wrote file: %s", filePath)
 		}
 
 		// Print item information
