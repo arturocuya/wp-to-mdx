@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	html2md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 )
+
+var client = &http.Client{}
 
 // ConvertHTMLToMarkdown converts HTML content to Markdown format
 func ConvertHTMLToMarkdown(html string) (string, []string, error) {
@@ -23,20 +26,29 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 	converter.AddRules(
 		html2md.Rule{
 			Filter: []string{"a"},
-			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
+			Replacement: func(_ string, selec *goquery.Selection, _ *html2md.Options) *string {
 				href, ok := selec.Attr("href")
 				if !ok {
 					return nil
 				}
-				// Remove base URL prefix
-				newHref := strings.ReplaceAll(href, baseURL, "/")
+
+				finalURL := href
+				// only follow redirects for links under our own site
+				if strings.HasPrefix(href, baseURL) {
+					if resp, err := client.Get(href); err == nil {
+						defer resp.Body.Close()
+						finalURL = resp.Request.URL.String()
+					}
+				}
+
+				// convert to a site-relative path
+				newHref := strings.ReplaceAll(finalURL, baseURL, "/")
 				text := selec.Text()
 				md := fmt.Sprintf("[%s](%s)", text, newHref)
 				return &md
 			},
 		},
 	)
-
 	// Add custom rule for images inside paragraph tags
 	converter.AddRules(
 		html2md.Rule{
