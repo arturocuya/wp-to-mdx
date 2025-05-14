@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,6 +12,11 @@ import (
 )
 
 func PostProcessMarkdownLines(markdown string, db *sqlx.DB) (string, []string) {
+	// Get base URL from environment
+	baseURL := os.Getenv("WP_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8082"
+	}
 	// Compile once
 	audioRe := regexp.MustCompile(`\[audio\s+mp3="([^"]+)"\]\s*\[/audio\]`)
 	videoRe := regexp.MustCompile(`\[video\s+width="(\d+)"\s+height="(\d+)"\s+mp4="([^"]+)"\]\s*\[/video\]`)
@@ -52,21 +58,25 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) (string, []string) {
 			splittedMd[i] = ""
 
 			for _, url := range dbURLs {
-				splittedMd[i] += fmt.Sprintf("<img src=\"%s\"/>\n\n", url)
-				mediaURLs = append(mediaURLs, url)
+				// Strip base URL to make path relative
+				relativePath := strings.TrimPrefix(url, baseURL)
+				splittedMd[i] += fmt.Sprintf("<img src=\"%s\"/>\n\n", relativePath)
+				mediaURLs = append(mediaURLs, url) // Keep full URL for download
 			}
 		}
 
 		// audio shortcode?
 		if m := audioRe.FindStringSubmatch(line); m != nil {
 			src := m[1]
+			// Strip base URL to make path relative
+			relativePath := strings.TrimPrefix(src, baseURL)
 			splittedMd[i] = fmt.Sprintf(
 				`<audio controls>
     <source src="%s" type="audio/mpeg"/>
     Your browser does not support the audio element.
-</audio>`, src,
+</audio>`, relativePath,
 			)
-			mediaURLs = append(mediaURLs, src)
+			mediaURLs = append(mediaURLs, src) // Keep full URL for download
 			fmt.Println("processed audio shortcode")
 			continue
 		}
@@ -74,13 +84,15 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) (string, []string) {
 		// video shortcode?
 		if m := videoRe.FindStringSubmatch(line); m != nil {
 			width, height, src := m[1], m[2], m[3]
+			// Strip base URL to make path relative
+			relativePath := strings.TrimPrefix(src, baseURL)
 			splittedMd[i] = fmt.Sprintf(
 				`<video controls width="%s" height="%s">
     <source src="%s" type="video/mp4"/>
     Your browser does not support the video tag.
-</video>`, width, height, src,
+</video>`, width, height, relativePath,
 			)
-			mediaURLs = append(mediaURLs, src)
+			mediaURLs = append(mediaURLs, src) // Keep full URL for download
 			fmt.Println("processed video shortcode")
 		}
 	}
