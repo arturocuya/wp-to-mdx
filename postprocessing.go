@@ -37,14 +37,16 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
 			splittedMd[i] = fmt.Sprintf("<YouTube id=\"%s\" />%s", link, rest)
 		}
 
-		if strings.HasPrefix(line, "\\[gallery ") {
+		// gallery shortcode?
+		galleryRe := regexp.MustCompile(`\[gallery\s+.*?ids="[^"]+".*?\]`)
+		if galleryRe.MatchString(line) {
 			ids, err := parseGalleryIDs(line)
 			if err != nil {
 				log.Printf("Warning: error parsing gallery: %s", err)
 				continue
 			}
 
-			dbURLs, err := GetImageURLsFromDB(db, ids)
+			dbURLs, _ := GetImageURLsFromDB(db, ids)
 
 			splittedMd[i] = ""
 
