@@ -17,7 +17,7 @@ import (
 )
 
 func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAPIBase string, isPage bool, db *sqlx.DB) []string {
-	var allImageURLs []string
+	var mediaUrls []string
 
 	for _, item := range content {
 		// Get the full URL from WordPress API just before creating the file
@@ -65,20 +65,21 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		}
 
 		// Convert HTML to Markdown
-		markdown, imageURLs, err := ConvertHTMLToMarkdown(inputHtml)
+		markdown, htmlMediaUrls, err := ConvertHTMLToMarkdown(inputHtml)
 		if err != nil {
 			log.Printf("Warning: Failed to convert %d to markdown: %v", item.ID, err)
 			continue
 		}
+		mediaUrls = append(mediaUrls, htmlMediaUrls...)
 
-		markdown = PostProcessMarkdownLines(markdown, db)
+		markdown, ppMediaUrls := PostProcessMarkdownLines(markdown, db)
+		mediaUrls = append(mediaUrls, ppMediaUrls...)
 
 		item.Content = markdown
-		allImageURLs = append(allImageURLs, imageURLs...)
 
 		// Add featured image to imageURLs if it exists
 		if item.FeaturedImage != "" {
-			allImageURLs = append(allImageURLs, item.FeaturedImage)
+			mediaUrls = append(mediaUrls, item.FeaturedImage)
 		}
 
 		// Create markdown file path
@@ -132,7 +133,7 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		)
 	}
 
-	return allImageURLs
+	return mediaUrls
 }
 
 func main() {
@@ -283,13 +284,13 @@ func main() {
 	close(imageCh)
 
 	// Combine and print all image URLs
-	var allImageURLs []string
+	var mediaUrls []string
 	for urls := range imageCh {
-		allImageURLs = append(allImageURLs, urls...)
+		mediaUrls = append(mediaUrls, urls...)
 	}
 
 	fmt.Println("Images to download:")
-	for i, src := range allImageURLs {
+	for i, src := range mediaUrls {
 		fmt.Println(i, src)
 	}
 }

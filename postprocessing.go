@@ -10,12 +10,13 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
+func PostProcessMarkdownLines(markdown string, db *sqlx.DB) (string, []string) {
 	// Compile once
 	audioRe := regexp.MustCompile(`\[audio\s+mp3="([^"]+)"\]\s*\[/audio\]`)
 	videoRe := regexp.MustCompile(`\[video\s+width="(\d+)"\s+height="(\d+)"\s+mp4="([^"]+)"\]\s*\[/video\]`)
 
 	// post-processing for YouTube links...
+	var mediaURLs []string
 	splittedMd := strings.Split(markdown, "\n")
 	for i, line := range splittedMd {
 		line = strings.TrimSpace(line)
@@ -52,6 +53,7 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
 
 			for _, url := range dbURLs {
 				splittedMd[i] += fmt.Sprintf("<img src=\"%s\"/>\n\n", url)
+				mediaURLs = append(mediaURLs, url)
 			}
 		}
 
@@ -64,6 +66,7 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
     Your browser does not support the audio element.
 </audio>`, src,
 			)
+			mediaURLs = append(mediaURLs, src)
 			fmt.Println("processed audio shortcode")
 			continue
 		}
@@ -77,6 +80,7 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
     Your browser does not support the video tag.
 </video>`, width, height, src,
 			)
+			mediaURLs = append(mediaURLs, src)
 			fmt.Println("processed video shortcode")
 		}
 	}
@@ -90,7 +94,7 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
 		markdown = fmt.Sprintf("import { Image } from 'astro:assets';\n\n%s", markdown)
 	}
 
-	return markdown
+	return markdown, mediaURLs
 }
 
 // parseGalleryIDs extracts all numeric IDs from a string like:
