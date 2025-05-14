@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -134,6 +136,47 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 	}
 
 	return mediaUrls
+}
+
+func DownloadImage(src string, baseURL string, outputDir string) error {
+	// Strip the base URL to get the path
+	path := strings.TrimPrefix(src, baseURL)
+	
+	// Create the full output path
+	outputPath := filepath.Join(outputDir, path)
+	
+	// Create directories
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %v", dir, err)
+	}
+	
+	// Download the file
+	resp, err := http.Get(src)
+	if err != nil {
+		return fmt.Errorf("failed to download %s: %v", src, err)
+	}
+	defer resp.Body.Close()
+	
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+	
+	// Create the file
+	out, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %v", outputPath, err)
+	}
+	defer out.Close()
+	
+	// Write the file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to write file %s: %v", outputPath, err)
+	}
+	
+	return nil
 }
 
 func main() {
@@ -293,4 +336,52 @@ func main() {
 	for i, src := range mediaUrls {
 		fmt.Println(i, src)
 	}
+	
+	// Get the media output directory
+	mediaOutputDir := os.Getenv("MEDIA_OUTPUT_DIR")
+	if mediaOutputDir == "" {
+		mediaOutputDir = "./output-media"
+	}
+	wpBaseURL := os.Getenv("WP_BASE_URL")
+	if wpBaseURL == "" {
+		log.Println("WP_BASE_URL not set, using default")
+		wpBaseURL = "http://localhost:8082"
+	}
+
+	// Create the output directory
+	if err := os.MkdirAll(mediaOutputDir, 0755); err != nil {
+		log.Fatalf("Failed to create media output directory %s: %v", mediaOutputDir, err)
+	}
+
+	// Set up concurrency limiting for downloads
+	dlSem := make(chan struct{}, nCPU)
+	var dlWg sync.WaitGroup
+
+	// Download images in parallel
+	for i, src := range mediaUrls {
+		// Skip if not from our WordPress site
+		if !strings.HasPrefix(src, wpBaseURL) {
+			log.Printf("Skipping external URL: %s", src)
+			continue
+		}
+		
+		// Download in parallel
+		dlWg.Add(1)
+		dlSem <- struct{}{}
+		
+		go func(src string, i int) {
+			defer dlWg.Done()
+			defer func() { <-dlSem }()
+			
+			err := DownloadImage(src, wpBaseURL, mediaOutputDir)
+			if err != nil {
+				log.Printf("Failed to download image %d (%s): %v", i, src, err)
+			} else {
+				log.Printf("Downloaded image %d: %s", i, src)
+			}
+		}(src, i)
+	}
+
+	// Wait for all downloads to complete
+	dlWg.Wait()
 }
