@@ -11,9 +11,17 @@ import (
 )
 
 func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
+	// Compile once
+	audioRe := regexp.MustCompile(`\[audio\s+mp3="([^"]+)"\]\s*\[/audio\]`)
+	videoRe := regexp.MustCompile(`\[video\s+width="(\d+)"\s+height="(\d+)"\s+mp4="([^"]+)"\]\s*\[/video\]`)
+
 	// post-processing for YouTube links...
 	splittedMd := strings.Split(markdown, "\n")
 	for i, line := range splittedMd {
+		line = strings.TrimSpace(line)
+		line = strings.ReplaceAll(line, `\[`, `[`)
+		line = strings.ReplaceAll(line, `\]`, `]`)
+
 		parts := strings.SplitN(line, " ", 2)
 		link := parts[0]
 		rest := ""
@@ -43,6 +51,31 @@ func PostProcessMarkdownLines(markdown string, db *sqlx.DB) string {
 			for _, url := range dbURLs {
 				splittedMd[i] += fmt.Sprintf("<img src=\"%s\"/>\n\n", url)
 			}
+		}
+
+		// audio shortcode?
+		if m := audioRe.FindStringSubmatch(line); m != nil {
+			src := m[1]
+			splittedMd[i] = fmt.Sprintf(
+				`<audio controls>
+    <source src="%s" type="audio/mpeg"/>
+    Your browser does not support the audio element.
+</audio>`, src,
+			)
+			fmt.Println("processed audio shortcode")
+			continue
+		}
+
+		// video shortcode?
+		if m := videoRe.FindStringSubmatch(line); m != nil {
+			width, height, src := m[1], m[2], m[3]
+			splittedMd[i] = fmt.Sprintf(
+				`<video controls width="%s" height="%s">
+    <source src="%s" type="video/mp4"/>
+    Your browser does not support the video tag.
+</video>`, width, height, src,
+			)
+			fmt.Println("processed video shortcode")
 		}
 	}
 	markdown = strings.Join(splittedMd, "\n")

@@ -46,6 +46,8 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		// Remove any trailing slash from the path
 		path = strings.TrimSuffix(path, "/")
 
+		inputHtml := item.Content
+
 		// Create HTML file path
 		htmlFilePath := fmt.Sprintf("%s/%s.html", htmlOutputDir, path)
 
@@ -57,13 +59,13 @@ func ProcessContent(content []Post, outputDir string, htmlOutputDir string, wpAP
 		}
 
 		// Write HTML file
-		if err := os.WriteFile(htmlFilePath, []byte(item.Content), 0644); err != nil {
+		if err := os.WriteFile(htmlFilePath, []byte(inputHtml), 0644); err != nil {
 			log.Printf("WriteFile error for HTML %s: %v", htmlFilePath, err)
 			continue
 		}
 
 		// Convert HTML to Markdown
-		markdown, imageURLs, err := ConvertHTMLToMarkdown(item.Content)
+		markdown, imageURLs, err := ConvertHTMLToMarkdown(inputHtml)
 		if err != nil {
 			log.Printf("Warning: Failed to convert %d to markdown: %v", item.ID, err)
 			continue
