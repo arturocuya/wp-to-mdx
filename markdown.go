@@ -15,7 +15,11 @@ import (
 var client = &http.Client{}
 
 // ConvertHTMLToMarkdown converts HTML content to Markdown format
-func ConvertHTMLToMarkdown(html string) (string, []string, error) {
+func ConvertHTMLToMarkdown(inputHtml string) (string, []string, error) {
+	// turn &lt; into &amp;lt;  so the parser produces a text node containing "&lt;"
+	inputHtml = strings.ReplaceAll(inputHtml, "&lt;", "&amp;lt;")
+	inputHtml = strings.ReplaceAll(inputHtml, "&gt;", "&amp;gt;")
+
 	converter := html2md.NewConverter("", true, nil)
 	var imageURLs []string
 
@@ -88,7 +92,7 @@ func ConvertHTMLToMarkdown(html string) (string, []string, error) {
 		},
 	)
 
-	markdown, err := converter.ConvertString(html)
+	markdown, err := converter.ConvertString(inputHtml)
 	if err != nil {
 		return "", nil, fmt.Errorf("conversion error: %v", err)
 	}
