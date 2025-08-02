@@ -65,10 +65,39 @@ func ConvertHTMLToMarkdown(inputHtml string) (string, []string, error) {
 
 					// Keep full URL for downloads
 					imageURLs = append(imageURLs, src)
-					
+
 					// Strip base URL for display
 					relativePath := strings.TrimPrefix(src, baseURL)
 					markdown := fmt.Sprintf("\n\n<img src=\"%s\" alt=\"%s\" />\n\n", relativePath, alt)
+					return &markdown
+				}
+				return nil
+			},
+		},
+	)
+
+	// Add custom rule for figure tags with single <a> child
+	converter.AddRules(
+		html2md.Rule{
+			Filter: []string{"figure"},
+			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
+				if selec.Children().Length() == 1 && selec.Children().Is("a") {
+					a := selec.Children().First()
+					href, _ := a.Attr("href")
+
+					// Keep full URL for downloads
+					imageURLs = append(imageURLs, href)
+
+					// Strip base URL for display
+					relativePath := strings.TrimPrefix(href, baseURL)
+
+					// Use link text as alt text if available
+					altText := a.Text()
+					if altText == "" {
+						altText = "Image"
+					}
+
+					markdown := fmt.Sprintf("\n\n<img src=\"/%s\" alt=\"%s\" />\n\n", relativePath, altText)
 					return &markdown
 				}
 				return nil

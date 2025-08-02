@@ -1,4 +1,6 @@
 .env
 wp_dir/
 output-*
+docker/all-in-one-wp-migration/
 wptomd
+tmp/
