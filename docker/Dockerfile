@@ -20,4 +20,9 @@ COPY admin-optimizations.php /var/www/html/wp-content/mu-plugins/admin-optimizat
 COPY debug-queries.php /var/www/html/wp-content/mu-plugins/debug-queries.php
 COPY block-external-requests.php /var/www/html/wp-content/mu-plugins/block-external-requests.php
 
+# Install All in One WP Migration plugin (pre-extracted on host)
+RUN mkdir -p /var/www/html/wp-content/plugins
+COPY all-in-one-wp-migration /var/www/html/wp-content/plugins/all-in-one-wp-migration
+RUN chown -R www-data:www-data /var/www/html/wp-content/plugins/all-in-one-wp-migration
+
 # WP code lives in image; uploads persisted via compose volume

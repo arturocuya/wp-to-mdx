@@ -42,3 +42,21 @@ add_filter('style_loader_src', function($src) {
     }
     return $src;
 });
+
+// Increase upload limits for All in One WP Migration
+add_filter('wp_max_upload_size', function($size) {
+    return 2 * 1024 * 1024 * 1024; // 2GB
+});
+
+add_filter('upload_size_limit', function($size) {
+    return 2 * 1024 * 1024 * 1024; // 2GB
+});
+
+// Override WordPress upload limits
+add_filter('pre_option_upload_max_filesize', function() {
+    return '2048M';
+});
+
+add_filter('pre_option_post_max_size', function() {
+    return '2048M';
+});

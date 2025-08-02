@@ -1,6 +1,8 @@
 services:
   db:
     image: mysql:5.7
+    ports:
+      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: somewordpress
       MYSQL_DATABASE: wordpress
@@ -11,7 +13,7 @@ services:
       - db_data:/var/lib/mysql
 
   wordpress:
-    build: .
+    build: ./docker
     depends_on:
       - db
     ports:
