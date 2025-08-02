@@ -1,35 +1,50 @@
-version: "3.3"
-
 services:
-  wp_db:
-     container_name: wp_db
-     image: mysql:5.7
-     volumes:
-       - wp_data:/var/lib/mysql
-     restart: always
-     ports:
-       - 3306:3306
-     environment:
-       MYSQL_ROOT_PASSWORD: somewordpress
-       MYSQL_DATABASE: wordpress
-       MYSQL_USER: wordpress
-       MYSQL_PASSWORD: wordpress
-
-  wp_inst:
-    container_name: wp_inst
-    depends_on:
-      - wp_db
-    image: wordpress:5.6.1
-    ports:
-      - 8082:80
-    restart: always
+  db:
+    image: mysql:5.7
     environment:
-      - WORDPRESS_DB_HOST=wp_db:3306
-      - WORDPRESS_DB_USER=wordpress
-      - WORDPRESS_DB_PASSWORD=wordpress
-      - WORDPRESS_DB_NAME=wordpress
+      MYSQL_ROOT_PASSWORD: somewordpress
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    command: --innodb-buffer-pool-size=256M --max-connections=50
     volumes:
-      - ./wp_dir/:/var/www/html
+      - db_data:/var/lib/mysql
+
+  wordpress:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "8082:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      # point WP to Redis for object caching
+      WP_REDIS_HOST: redis
+      # Performance optimizations
+      WORDPRESS_CONFIG_EXTRA: |
+        // Admin performance optimizations
+        define('CONCATENATE_SCRIPTS', false);
+        define('COMPRESS_SCRIPTS', false);
+        define('COMPRESS_CSS', false);
+        define('SCRIPT_DEBUG', false);
+        define('WP_DEBUG', false);
+        define('WP_DEBUG_LOG', false);
+        define('WP_DEBUG_DISPLAY', false);
+        // Disable plugin/theme editor
+        define('DISALLOW_FILE_EDIT', true);
+        // Reduce admin heartbeat
+        define('WP_POST_REVISIONS', 3);
+        // Increase memory for admin
+        ini_set('memory_limit', '512M');
+    volumes:
+      # only uploads need persistence
+      - ./wp_dir/wp-content/uploads:/var/www/html/wp-content/uploads
+
+  redis:
+    image: redis:6-alpine
 
 volumes:
-  wp_data:
+  db_data:
