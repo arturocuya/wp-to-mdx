@@ -81,6 +81,55 @@ func ConvertHTMLToMarkdown(inputHtml string) (string, []string, error) {
 		html2md.Rule{
 			Filter: []string{"figure"},
 			Replacement: func(content string, selec *goquery.Selection, opt *html2md.Options) *string {
+				// Check for audio element in figure
+				if selec.Children().Length() == 1 && selec.Children().Is("audio") {
+					audio := selec.Children().First()
+					src, ok := audio.Attr("src")
+					if ok {
+						// Keep full URL for downloads
+						imageURLs = append(imageURLs, src)
+
+						// Strip base URL for display
+						relativePath := strings.TrimPrefix(src, baseURL)
+						markdown := fmt.Sprintf("\n\n<audio controls src=\"/%s\"></audio>\n\n", relativePath)
+						return &markdown
+					}
+				}
+
+				// Check for YouTube video in figure with div and figcaption
+				if selec.Children().Length() == 2 {
+					div := selec.Children().First()
+					figcaption := selec.Children().Last()
+
+					if div.Is("div") && figcaption.Is("figcaption") {
+						divText := strings.TrimSpace(div.Text())
+						captionText := strings.TrimSpace(figcaption.Text())
+
+						// Check if div contains YouTube URL
+						if strings.Contains(divText, "youtu.be") || strings.Contains(divText, "youtube.com") {
+							// Extract video ID from URL
+							videoID := ""
+							if strings.Contains(divText, "youtu.be/") {
+								parts := strings.Split(divText, "youtu.be/")
+								if len(parts) > 1 {
+									videoID = strings.Split(parts[1], "?")[0]
+									videoID = strings.Split(videoID, "&")[0]
+								}
+							} else if strings.Contains(divText, "youtube.com/watch?v=") {
+								parts := strings.Split(divText, "v=")
+								if len(parts) > 1 {
+									videoID = strings.Split(parts[1], "&")[0]
+								}
+							}
+
+							if videoID != "" {
+								markdown := fmt.Sprintf("\n\n<YouTube id=\"%s\" />\n\n%s\n\n", videoID, captionText)
+								return &markdown
+							}
+						}
+					}
+				}
+
 				if selec.Children().Length() == 1 && selec.Children().Is("a") {
 					a := selec.Children().First()
 					href, _ := a.Attr("href")
