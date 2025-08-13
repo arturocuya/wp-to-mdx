@@ -179,6 +179,9 @@ func ConvertHTMLToMarkdown(inputHtml string) (string, []string, error) {
 		return "", nil, fmt.Errorf("conversion error: %v", err)
 	}
 
+	// Handle [youtube]URL[/youtube] shortcode format
+	markdown = processYouTubeShortcodes(markdown)
+
 	return markdown, imageURLs, nil
 }
 
@@ -213,4 +216,72 @@ func GenerateFrontmatter(post Post, publishDate, updatedDate time.Time) string {
 		tagsJSON,
 		featuredImageFrontmatter,
 	)
+}
+
+// processYouTubeShortcodes converts [youtube]URL[/youtube] shortcodes to YouTube components
+func processYouTubeShortcodes(content string) string {
+	result := content
+
+	for {
+		// Find the start of a YouTube shortcode
+		startTag := "\\[youtube\\]"
+		endTag := "\\[/youtube\\]"
+
+		startIndex := strings.Index(result, startTag)
+		if startIndex == -1 {
+			break // No more shortcodes found
+		}
+
+		// Find the corresponding end tag
+		endIndex := strings.Index(result[startIndex:], endTag)
+		if endIndex == -1 {
+			break // No matching end tag found
+		}
+
+		// Adjust endIndex to be relative to the full string
+		endIndex += startIndex
+
+		// Extract the URL between the tags
+		url := result[startIndex+len(startTag) : endIndex]
+
+		// Extract video ID from YouTube URL
+		videoID := extractYouTubeVideoID(url)
+
+		replacement := ""
+		if videoID != "" {
+			replacement = fmt.Sprintf("\n\n<YouTube id=\"https://youtu.be/%s\" />\n\n", videoID)
+		} else {
+			// If unable to extract video ID, keep original shortcode
+			replacement = result[startIndex : endIndex+len(endTag)]
+		}
+
+		// Replace the shortcode with the YouTube component
+		result = result[:startIndex] + replacement + result[endIndex+len(endTag):]
+	}
+
+	return result
+}
+
+// extractYouTubeVideoID extracts the video ID from various YouTube URL formats
+func extractYouTubeVideoID(url string) string {
+	// Handle youtu.be format
+	if strings.Contains(url, "youtu.be/") {
+		parts := strings.Split(url, "youtu.be/")
+		if len(parts) > 1 {
+			videoID := strings.Split(parts[1], "?")[0]
+			videoID = strings.Split(videoID, "&")[0]
+			return videoID
+		}
+	}
+
+	// Handle youtube.com/watch?v= format
+	if strings.Contains(url, "youtube.com/watch?v=") {
+		parts := strings.Split(url, "v=")
+		if len(parts) > 1 {
+			videoID := strings.Split(parts[1], "&")[0]
+			return videoID
+		}
+	}
+
+	return ""
 }
